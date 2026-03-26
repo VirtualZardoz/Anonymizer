@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "description": "Default configuration for the anonymizer tool",
+  "gliner": {
+    "model": "urchade/gliner_multi_pii-v1",
+    "labels": ["person", "organization", "full address"],
+    "threshold": 0.5
+  },
+  "ollama": {
+    "endpoint": "http://localhost:11434",
+    "model": "qwen3:14b",
+    "timeout_seconds": 60
+  },
+  "locale": "fr_CH",
+  "date_offset_range": [30, 90],
+  "amount_factor_range": [0.7, 1.4],
+  "regex_patterns": {
+    "email": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+    "phone_ch": "(?:\\+41|0041|0)\\s?(?:\\(0\\))?\\s?\\d{2}\\s?\\d{3}\\s?\\d{2}\\s?\\d{2}",
+    "phone_intl": "\\+\\d{1,3}[\\s.-]?\\(?\\d{1,4}\\)?[\\s.-]?\\d{2,4}[\\s.-]?\\d{2,4}[\\s.-]?\\d{0,4}",
+    "iban_ch": "CH\\d{2}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d",
+    "iban_intl": "[A-Z]{2}\\d{2}\\s?(?:\\d{4}\\s?){2,7}\\d{1,4}",
+    "ahv_avs": "756\\.\\d{4}\\.\\d{4}\\.\\d{2}",
+    "swiss_postal": "\\b(\\d{4})\\s+([A-ZÀ-Ü][a-zà-ü]+(?:[\\s-][A-ZÀ-Ü][a-zà-ü]*)*)(?=\\s*$|[,;.\\)]|\\n)",
+    "date_euro": "\\b(\\d{1,2})[./](\\d{1,2})[./](\\d{4})\\b",
+    "date_iso": "\\b(\\d{4})-(\\d{2})-(\\d{2})\\b",
+    "date_written_fr": "\\b(\\d{1,2})\\s+(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\\s+(\\d{4})\\b",
+    "date_written_en": "\\b(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{1,2}),?\\s+(\\d{4})\\b",
+    "amount": "(?:CHF|EUR|USD|Fr\\.|€|\\$)\\s?[\\d',]+(?:\\.\\d{2})?|[\\d',]+(?:\\.\\d{2})?\\s?(?:CHF|EUR|USD|francs?|euros?)",
+    "dossier_ref": "(?:Réf|Ref|N°|No\\.?)\\s*:?\\s*[A-Z0-9][A-Z0-9./-]+[A-Z0-9]"
+  },
+  "verification_known_banks": [
+    "UBS", "Credit Suisse", "Crédit Suisse", "Raiffeisen", "PostFinance",
+    "Banque Cantonale", "BCGE", "BCV", "BCVs", "BCF", "BCN", "ZKB",
+    "Julius Bär", "Lombard Odier", "Pictet", "Mirabaud", "Vontobel",
+    "Swissquote", "HSBC", "BNP Paribas", "Société Générale"
+  ],
+  "verification_known_cities": [
+    "Genève", "Lausanne", "Zürich", "Bern", "Basel", "Lugano", "Sion",
+    "Fribourg", "Neuchâtel", "Montreux", "Nyon", "Morges", "Vevey",
+    "Yverdon", "Bienne", "Thun", "Luzern", "St. Gallen", "Winterthur",
+    "Carouge", "Lancy", "Meyrin", "Vernier", "Onex", "Thônex",
+    "Plan-les-Ouates", "Chêne-Bougeries", "Cologny", "Vandoeuvres"
+  ]
+}
