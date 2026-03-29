@@ -22,6 +22,12 @@ class MappingTable:
     When not provided, mapping is stored as mapping.json (plaintext, backward compat).
     """
 
+    # Language detection → Faker locale mapping
+    LANG_TO_LOCALE = {
+        "fr": "fr_CH", "de": "de_CH", "en": "en_US", "it": "it_CH",
+        "es": "es_ES", "pt": "pt_BR",
+    }
+
     def __init__(self, vault_path: Path, locale: str = "fr_CH", password: str = None):
         self.vault_path = vault_path
         self.enc_path = vault_path / "mapping.enc"
@@ -29,6 +35,8 @@ class MappingTable:
         self.password = password
         self.locale = locale
         self.faker = Faker(locale)
+        self._fakers: Dict[str, Faker] = {locale: self.faker}
+        self._current_doc_locale: Optional[str] = None
         self.data: Dict[str, Any] = {}
         self._load()
 
@@ -112,6 +120,23 @@ class MappingTable:
             self.json_path.unlink()
             print("  Mapping table migrated to encrypted format.")
 
+    def set_document_locale(self, text: str):
+        """Auto-detect document language and set the active Faker locale."""
+        try:
+            from langdetect import detect
+            lang = detect(text)
+        except Exception:
+            lang = None
+        locale = self.LANG_TO_LOCALE.get(lang, self.locale)
+        self._current_doc_locale = locale
+        if locale not in self._fakers:
+            self._fakers[locale] = Faker(locale)
+
+    def _active_faker(self) -> Faker:
+        """Return the Faker instance for the current document's detected language."""
+        locale = self._current_doc_locale or self.locale
+        return self._fakers.get(locale, self.faker)
+
     @property
     def entities(self) -> Dict[str, Dict]:
         return self.data["entities"]
@@ -139,26 +164,27 @@ class MappingTable:
 
     def _generate_replacement(self, original: str, entity_type: str) -> str:
         """Generate a plausible replacement based on entity type."""
+        faker = self._active_faker()
         # Seed faker for this specific entity so it's deterministic
         seed = int(hashlib.sha256(original.encode()).hexdigest()[:8], 16)
-        self.faker.seed_instance(seed)
+        faker.seed_instance(seed)
 
         if entity_type == "person":
-            return self.faker.name()
+            return faker.name()
         elif entity_type == "organization":
-            return self._fake_org(original)
+            return self._fake_org(original, faker)
         elif entity_type == "address":
-            return f"{self.faker.street_address()}"
+            return f"{faker.street_address()}"
         elif entity_type == "email":
-            return self.faker.email()
+            return faker.email()
         elif entity_type == "phone":
-            return self.faker.phone_number()
+            return faker.phone_number()
         elif entity_type == "iban":
             return self._fake_iban()
         elif entity_type == "ahv":
             return self._fake_ahv()
         elif entity_type == "postal_code":
-            return self._fake_postal()
+            return self._fake_postal(faker)
         elif entity_type.startswith("date_"):
             return self._shift_date(original, entity_type)
         elif entity_type == "amount":
@@ -169,8 +195,9 @@ class MappingTable:
         else:
             return f"[REDACTED-{entity_type.upper()}]"
 
-    def _fake_org(self, original: str) -> str:
+    def _fake_org(self, original: str, faker: Faker = None) -> str:
         """Generate a plausible Swiss organization name."""
+        faker = faker or self._active_faker()
         # Preserve legal suffixes
         suffixes = ["SA", "Sàrl", "AG", "GmbH", "& Cie", "S.A."]
         found_suffix = ""
@@ -178,7 +205,7 @@ class MappingTable:
             if s in original:
                 found_suffix = f" {s}"
                 break
-        return f"{self.faker.company()}{found_suffix}"
+        return f"{faker.company()}{found_suffix}"
 
     def _fake_iban(self) -> str:
         """Generate a fake but plausible-format Swiss IBAN."""
@@ -188,9 +215,10 @@ class MappingTable:
         """Generate a fake AHV/AVS number."""
         return f"756.{random.randint(1000, 9999)}.{random.randint(1000, 9999)}.{random.randint(10, 99)}"
 
-    def _fake_postal(self) -> str:
+    def _fake_postal(self, faker: Faker = None) -> str:
         """Generate a fake Swiss postal code + city."""
-        return f"{self.faker.postcode()} {self.faker.city()}"
+        faker = faker or self._active_faker()
+        return f"{faker.postcode()} {faker.city()}"
 
     def _shift_date(self, original: str, date_type: str) -> str:
         """Shift a date by the vault's fixed offset."""

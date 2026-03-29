@@ -42,6 +42,7 @@ def expand_name_variants(
     For each person detection like "Madame Céline Dubois-Marchand", generates:
     - "Céline Dubois-Marchand" (without title)
     - "Dubois-Marchand" (surname only, if compound or multi-word)
+    - "Céline" (first name, if >4 chars)
 
     For each organization like "Banque Cantonale de Genève (BCGE)", generates:
     - "BCGE" (parenthetical abbreviation)
@@ -109,9 +110,15 @@ def _derive_person_variant_replacement(parent_text: str, variant_text: str, pare
         parent: "Madame Céline Dubois-Marchand" → "Yvette Corbat"
         variant: "Dubois-Marchand" → "Corbat" (surname from replacement)
         variant: "Céline Dubois-Marchand" → "Yvette Corbat" (full replacement)
+        variant: "Céline" → "Yvette" (first name from replacement)
 
         parent: "Maître Jean-Pierre Fontaine" → "Nathan Barbey"
         variant: "Fontaine" → "Barbey"
+
+        parent: "Roger Kirchner Carvalho" → "Yvette Corbat Mendes"
+        variant: "Roger" → "Yvette" (first name)
+        variant: "Kirchner" → "Corbat" (middle name)
+        variant: "Carvalho" → "Mendes" (surname)
     """
     parent_words = parent_text.split()
     variant_words = variant_text.split()
@@ -122,10 +129,20 @@ def _derive_person_variant_replacement(parent_text: str, variant_text: str, pare
     if variant_words == parent_clean:
         return parent_replacement
 
-    # If variant is the surname (last word of the clean name)
+    # If variant is a single name part, figure out if it's first name or surname
     if len(variant_words) == 1 and len(replacement_words) >= 1:
-        # Return the last word of the replacement (surname)
-        return replacement_words[-1]
+        if len(parent_clean) >= 2 and variant_text == parent_clean[0]:
+            # First name → return first word of replacement
+            return replacement_words[0]
+        elif len(parent_clean) >= 3 and variant_text in parent_clean[1:-1]:
+            # Middle name → return middle word of replacement if available
+            idx = parent_clean.index(variant_text)
+            if idx < len(replacement_words):
+                return replacement_words[idx]
+            return replacement_words[0]
+        else:
+            # Surname (last word) → return last word of replacement
+            return replacement_words[-1]
 
     # If variant is a compound surname (e.g., hyphenated)
     if len(variant_words) == 1 and "-" in variant_text and len(replacement_words) >= 1:
@@ -158,7 +175,7 @@ def _person_variants(name: str) -> List[str]:
     if no_title != name:
         variants.append(no_title)
 
-    # Surname only (last word or hyphenated compound)
+    # Individual name parts (first, middle, surname)
     if len(clean_words) >= 2:
         surname = clean_words[-1]
         # Check for hyphenated compound surnames
@@ -172,6 +189,11 @@ def _person_variants(name: str) -> List[str]:
             # Only add standalone surname if it's distinctive enough (>4 chars)
             if len(surname) > 4:
                 variants.append(surname)
+
+        # First name and middle names (same >4 char threshold)
+        for word in clean_words[:-1]:
+            if len(word) > 4 and "-" not in word:
+                variants.append(word)
 
     return variants
 

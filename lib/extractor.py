@@ -1,9 +1,13 @@
 """Document-to-text extraction using docling or pandoc fallback."""
 
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import List, Tuple
+
+# Matches inline base64 images from docling output (e.g. ![Image](data:image/png;base64,...))
+_BASE64_IMAGE_RE = re.compile(r'!\[[^\]]*\]\(data:image/[^)]+\)')
 
 SUPPORTED_EXTENSIONS = {".docx", ".pdf", ".html", ".htm", ".txt", ".md", ".rtf", ".pptx", ".xlsx"}
 PASSTHROUGH_EXTENSIONS = {".txt", ".md"}
@@ -22,7 +26,7 @@ def extract_file(file_path: Path) -> str:
     # Try docling first (best quality for .docx, .pdf)
     text = _try_docling(file_path)
     if text is not None:
-        return text
+        return _strip_base64_images(text)
 
     # Fallback to pandoc
     text = _try_pandoc(file_path)
@@ -52,25 +56,31 @@ def extract_folder(folder_path: Path) -> List[Tuple[str, str]]:
     return results
 
 
+def _strip_base64_images(text: str) -> str:
+    """Remove inline base64 image data from docling output. Keeps text content only."""
+    return _BASE64_IMAGE_RE.sub("", text)
+
+
 def _try_docling(file_path: Path) -> str | None:
     """Try docling CLI for conversion."""
     try:
+        abs_path = file_path.resolve()
         result = subprocess.run(
-            ["docling", "--to", "md", str(file_path)],
+            ["docling", "--to", "md", str(abs_path)],
             capture_output=True,
             text=True,
             timeout=120,
-            cwd=file_path.parent,
+            cwd=str(abs_path.parent),
         )
         if result.returncode == 0:
             # docling writes output as <stem>.md in the same directory
-            output_path = file_path.parent / (file_path.stem + ".md")
+            output_path = abs_path.parent / (abs_path.stem + ".md")
             if output_path.exists():
                 text = output_path.read_text(encoding="utf-8")
                 output_path.unlink()  # Clean up docling output
                 return text
             # Sometimes docling writes to an output/ subdirectory
-            output_dir = file_path.parent / "output"
+            output_dir = abs_path.parent / "output"
             if output_dir.exists():
                 for md_file in output_dir.glob("*.md"):
                     text = md_file.read_text(encoding="utf-8")

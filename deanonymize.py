@@ -13,6 +13,13 @@ import argparse
 import sys
 from pathlib import Path
 
+XLSX_SUPPORTED = False
+try:
+    from openpyxl import load_workbook
+    XLSX_SUPPORTED = True
+except ImportError:
+    pass
+
 TOOL_DIR = Path(__file__).parent
 VAULTS_DIR = TOOL_DIR / "vaults"
 
@@ -45,6 +52,22 @@ def deanonymize_text(text: str, reverse_map: dict, entities: dict) -> str:
     return text
 
 
+def deanonymize_xlsx(input_path: Path, output_path: Path, reverse_map: dict, entities: dict):
+    """De-anonymize an Excel file by replacing pseudonyms in all cell values."""
+    wb = load_workbook(input_path)
+    count = 0
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.strip():
+                    restored = deanonymize_text(cell.value, reverse_map, entities)
+                    if restored != cell.value:
+                        cell.value = restored
+                        count += 1
+    wb.save(output_path)
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(description="De-anonymize documents using mapping table")
     parser.add_argument("vault_name", help="Vault whose mapping table to use")
@@ -74,28 +97,41 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Collect input files
+    supported_ext = {".md", ".txt"}
+    if XLSX_SUPPORTED:
+        supported_ext.add(".xlsx")
+
     input_path = Path(args.input_path)
     if input_path.is_file():
         files = [input_path]
     elif input_path.is_dir():
-        files = sorted(input_path.glob("*.md"))
+        files = sorted(f for f in input_path.iterdir() if f.suffix.lower() in supported_ext)
     else:
         print(f"Input path not found: {input_path}")
         sys.exit(1)
 
     if not files:
-        print(f"No .md files found in {input_path}")
+        print(f"No supported files ({', '.join(supported_ext)}) found in {input_path}")
         sys.exit(1)
 
     print(f"De-anonymizing {len(files)} file(s) using {len(reverse_map)} mappings")
     print(f"Output: {output_dir}/\n")
 
     for f in files:
-        text = f.read_text(encoding="utf-8")
-        restored = deanonymize_text(text, reverse_map, entities)
-        output_path = output_dir / f.name
-        output_path.write_text(restored, encoding="utf-8")
-        print(f"  {f.name} → {output_path.name}")
+        output_name = f"deanon_{f.name}"
+        output_path = output_dir / output_name
+
+        if f.suffix.lower() == ".xlsx":
+            if not XLSX_SUPPORTED:
+                print(f"  SKIP {f.name} — openpyxl not installed")
+                continue
+            cell_count = deanonymize_xlsx(f, output_path, reverse_map, entities)
+            print(f"  {f.name} → {output_name} ({cell_count} cells restored)")
+        else:
+            text = f.read_text(encoding="utf-8")
+            restored = deanonymize_text(text, reverse_map, entities)
+            output_path.write_text(restored, encoding="utf-8")
+            print(f"  {f.name} → {output_name}")
 
     print(f"\nDone. {len(files)} file(s) de-anonymized.")
 

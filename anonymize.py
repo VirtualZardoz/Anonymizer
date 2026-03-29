@@ -108,6 +108,11 @@ def cmd_run(args):
     for filename, text in documents:
         print(f"\n=== Processing: {filename} ===")
 
+        # Auto-detect document language for locale-appropriate replacements
+        mapping.set_document_locale(text)
+        if mapping._current_doc_locale != mapping.locale:
+            print(f"  Language detected: {mapping._current_doc_locale} (default: {mapping.locale})")
+
         # Step 2: Layer 1 — Regex detection
         print("  Layer 1: Regex detection...")
         detections = detect_all(text, config.get("regex_patterns", {}))

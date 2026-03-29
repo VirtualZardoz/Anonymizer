@@ -14,7 +14,7 @@ Three-layer pipeline:
 
 1. **Regex** — catches structured PII: emails, phones, IBAN, AHV/AVS, dates, amounts, postal codes, dossier references. Dates are shifted by a fixed offset, amounts scaled by a fixed factor (preserves timelines and proportions).
 
-2. **GLiNER NER** — multilingual neural entity recognition (FR/DE/EN/ES/IT/PT). Catches person names, organizations, and addresses that regex can't. Runs locally on CPU, no cloud calls. Name variants (bare surnames, title-less forms) are automatically derived from detected entities.
+2. **GLiNER NER** — multilingual neural entity recognition (FR/DE/EN/ES/IT/PT). Catches person names, organizations, and addresses that regex can't. Runs locally on CPU, no cloud calls. Name variants (first names, middle names, surnames, title-less forms) are automatically derived from detected entities. Language is auto-detected per document for locale-appropriate pseudonym generation.
 
 3. **Verification** — checks the anonymized output for leaked PII using known entity lists, institution name matching, and optional Ollama LLM review.
 
@@ -46,7 +46,7 @@ python3 anonymize.py run my-case --password mypass
 # View the mapping table
 python3 anonymize.py show-map my-case --password mypass
 
-# De-anonymize LLM output
+# De-anonymize LLM output (markdown, text, or Excel)
 python3 deanonymize.py my-case ./output-files/ --password mypass
 ```
 
@@ -57,7 +57,7 @@ vaults/my-case/
   originals/        ← your confidential files (never leaves this folder)
   mapping.enc       ← encrypted reversible key (never share this)
   anonymized/       ← safe .md files (share these with your LLM)
-  deanonymized/     ← restored output after reverse mapping
+  deanonymized/     ← restored output after reverse mapping (deanon_* prefix)
   known_entities.json  ← (optional) entities to always anonymize
 ```
 
@@ -83,6 +83,8 @@ When `--password` is provided, the mapping table is encrypted at rest using Fern
 - Faker — pseudonym generation
 - GLiNER — multilingual NER
 - cryptography — mapping table encryption
+- langdetect — per-document language detection
+- openpyxl — Excel de-anonymization (.xlsx)
 - Flask — web UI
 - docling / pandoc — document conversion (.docx, .pdf → text)
 - Ollama (optional) — Layer 3 LLM verification
@@ -90,6 +92,20 @@ When `--password` is provided, the mapping table is encrypted at rest using Fern
 ```bash
 pip install -r requirements.txt
 ```
+
+## Excel de-anonymization
+
+The de-anonymizer supports `.xlsx` files. It replaces pseudonyms in all cell values across all worksheets, preserving formatting and formulas.
+
+```bash
+python3 deanonymize.py my-case ./spreadsheet.xlsx --password mypass
+```
+
+Output: `deanonymized/deanon_spreadsheet.xlsx`
+
+## Multi-locale support
+
+Document language is auto-detected (FR/DE/EN/IT/ES/PT) and pseudonyms are generated in the matching locale. A German document gets German-sounding names, a French document gets French ones. The default locale (set at vault creation) is used as fallback.
 
 ## What it catches
 

@@ -150,6 +150,7 @@ TEMPLATE = """
         <input type="text" name="name" placeholder="vault-name" required>
       </div>
       <div class="form-group">
+        <label>Default locale</label>
         <select name="locale">
           <option value="fr_CH">French (CH)</option>
           <option value="de_CH">German (CH)</option>
@@ -159,6 +160,7 @@ TEMPLATE = """
           <option value="de_DE">German (DE)</option>
           <option value="fr_FR">French (FR)</option>
         </select>
+        <small style="color:#484f58;">Language auto-detected per document</small>
       </div>
       <div class="form-group">
         <input type="password" name="password" placeholder="Encryption password (optional)">
@@ -174,13 +176,11 @@ TEMPLATE = """
     {% endfor %}
     {% endwith %}
 
-    {% block content %}
     <div class="empty-state">
       <div class="icon">&#128274;</div>
       <h2>Document Anonymizer</h2>
       <p>Create a vault or select one from the sidebar to start anonymizing documents.</p>
     </div>
-    {% endblock %}
   </div>
 </div>
 
@@ -213,9 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 </html>
 """
 
-VAULT_TEMPLATE = """
-{% extends "base" %}
-{% block content %}
+VAULT_CONTENT = """
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
   <h2>{{ vault_name }}</h2>
   <div class="actions" style="margin-bottom:0;">
@@ -232,6 +230,19 @@ VAULT_TEMPLATE = """
   <div>Entities: <span class="value">{{ entities|length }}</span></div>
   <div>Encryption: <span class="value">{{ 'on' if encrypted else 'off' }}</span></div>
 </div>
+
+{% if needs_password %}
+<div class="card">
+  <h3>Unlock vault</h3>
+  <p style="font-size:13px; color:#8b949e; margin-bottom:12px;">This vault is encrypted. Enter the password to access it.</p>
+  <form method="GET" action="{{ url_for('vault_view', name=vault_name) }}">
+    <div class="form-group">
+      <input type="password" name="password" placeholder="Vault password" required style="width:300px;">
+    </div>
+    <button type="submit" class="btn btn-primary">Unlock</button>
+  </form>
+</div>
+{% else %}
 
 <!-- Upload -->
 <div class="card">
@@ -349,7 +360,7 @@ VAULT_TEMPLATE = """
 </div>
 {% endif %}
 
-{% endblock %}
+{% endif %}{# end needs_password else #}
 """
 
 
@@ -370,17 +381,17 @@ def get_vault_state(vault_name, password=None):
     deanonymized = sorted([f.name for f in (vault_path / "deanonymized").iterdir() if f.is_file()]) if (vault_path / "deanonymized").exists() else []
 
     encrypted = (vault_path / "mapping.enc").exists()
+    needs_password = encrypted and not password
 
     # Load entities
     entities = {}
-    try:
-        from lib.replacer import MappingTable
-        mapping = MappingTable(vault_path, password=password)
-        entities = mapping.entities
-    except SystemExit:
-        pass
-    except Exception:
-        pass
+    if not needs_password:
+        try:
+            from lib.replacer import MappingTable
+            mapping = MappingTable(vault_path, password=password)
+            entities = mapping.entities
+        except (SystemExit, Exception):
+            pass
 
     # Load anonymized file contents for preview
     anonymized_contents = {}
@@ -402,6 +413,7 @@ def get_vault_state(vault_name, password=None):
         "anonymized": anonymized,
         "deanonymized": deanonymized,
         "encrypted": encrypted,
+        "needs_password": needs_password,
         "entities": entities,
         "anonymized_contents": anonymized_contents,
         "run_log": run_log,
@@ -417,8 +429,18 @@ def index():
 def vault_view(name):
     password = request.args.get("password", "")
     state = get_vault_state(name, password=password or None)
+    if state.get("needs_password"):
+        flash("This vault is encrypted. Enter the password to unlock.", "info")
+    combined = TEMPLATE.replace(
+        """<div class="empty-state">
+      <div class="icon">&#128274;</div>
+      <h2>Document Anonymizer</h2>
+      <p>Create a vault or select one from the sidebar to start anonymizing documents.</p>
+    </div>""",
+        VAULT_CONTENT,
+    )
     return render_template_string(
-        VAULT_TEMPLATE,
+        combined,
         vaults=get_vaults(),
         vault=name,
         vault_name=name,
@@ -569,48 +591,14 @@ def open_browser(port):
     """Open browser after a short delay to let Flask start."""
     import time
     time.sleep(1.0)
-    webbrowser.open(f"http://localhost:{port}")
+    url = f"http://localhost:{port}"
+    # In WSL, webbrowser.open launches a Linux browser. Use cmd.exe to open Windows default browser.
+    if "microsoft" in os.uname().release.lower():
+        subprocess.Popen(["cmd.exe", "/c", "start", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        webbrowser.open(url)
 
 
-# Jinja2: make base template available
-@app.template_global()
-def get_template_attribute(template, attribute):
-    return getattr(app.jinja_env.get_template(template), attribute)
-
-
-# Register the base template
-app.jinja_env.globals["base_template"] = TEMPLATE
-
-# Override render to handle extends
-_original_render = render_template_string
-
-def render_with_base(source, **context):
-    if '{% extends "base" %}' in source:
-        source = source.replace('{% extends "base" %}', '')
-        # Render content block
-        from jinja2 import Environment
-        env = app.jinja_env
-        # Combine base + content
-        base = TEMPLATE.replace("{% block content %}", "").replace("{% endblock %}", "")
-        # Find content block in source
-        import re
-        content_match = re.search(r'{%\s*block content\s*%}(.*?){%\s*endblock\s*%}', source, re.DOTALL)
-        if content_match:
-            content = content_match.group(1)
-            combined = base.replace(
-                """<div class="empty-state">
-      <div class="icon">&#128274;</div>
-      <h2>Document Anonymizer</h2>
-      <p>Create a vault or select one from the sidebar to start anonymizing documents.</p>
-    </div>""",
-                content
-            )
-            return _original_render(combined, **context)
-    return _original_render(source, **context)
-
-# Monkey-patch
-import flask
-flask.render_template_string = render_with_base
 
 
 if __name__ == "__main__":
